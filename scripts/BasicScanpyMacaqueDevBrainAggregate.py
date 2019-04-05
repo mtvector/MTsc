@@ -50,7 +50,7 @@ if not os.path.exists(os.path.join(directory,'macaqueDevBrain-concat_files-do_pc
     print("1")
     sc.pp.filter_genes(adata,min_counts=1)
     print(adata)
-    adata=sc_utils.sc_lda(adata,n_components=12)
+    #adata=sc_utils.sc_lda(adata,n_components=12)
     print("2")
     adata=sc_utils.std_norm_transform(adata,n_top_genes=6000,tsne=True,save=True)
     print("5")

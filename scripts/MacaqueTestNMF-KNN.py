@@ -73,7 +73,7 @@ for k in [8,12,16,26,32]:
     adata.raw=adata
     print('KNNing')
     neighbors=sc.Neighbors(anndata.AnnData(np.array(adata.obs.loc[:,[x for x in adata.obs.keys() if "nmf" in x]])))
-    neighbors.compute_neighbors(n_neighbors=100,metric="manhattan")
+    neighbors.compute_neighbors(n_neighbors=100,metric="correlation")
     adata.uns['neighbors'] = {}
     adata.uns['neighbors']['distances'] = neighbors.distances
     adata.uns['neighbors']['connectivities'] = neighbors.connectivities

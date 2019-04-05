@@ -66,7 +66,7 @@ for i in range(len(v)):
 test_condit=[[1,.1,10],[10,.1,1],[10,.1,10],[1,1,1],[1,1,.01],[.01,.01,.01],[100,100,.01],[1,.1,1],[1,1,10],[1,1,.001],[1,1,1],[.1,1,.01],[1,.1,.01],[10,1,.01],[1,10,.01]]
 
 for alpha,gamma,eta in test_condit:
-    directory=os.path.join(basepath,'HDPBasicAnalysisAggregateDownsample_600_4_4_'+str(alpha)+'alpha_'+str(gamma)+'gamma_'+str(eta)+'eta')
+    directory=os.path.join(basepath,'TrueHDPBasicAnalysisAggregateDownsample_600_4_4_'+str(alpha)+'alpha_'+str(gamma)+'gamma_'+str(eta)+'eta')
     if not os.path.exists(directory):
         os.makedirs(directory)
     sc.settings.figdir=directory

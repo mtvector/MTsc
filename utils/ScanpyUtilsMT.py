@@ -46,9 +46,25 @@ def import_file(filename,refname,outpath=None,filter_genes=30,save=False):
     adata=sc.read_10x_h5(filename,refname)
     adata.var_names_make_unique()
     #sc.pp.filter_cells(adata, min_genes=filter_genes)
-    adata.obs['n_counts'] = adata.X.sum(axis=1).A1
-    print(adata)
+    adata.obs['n_counts'] = adata.X.sum(axis=1)
     adata.uns['name']=filename.split(os.sep)[-3]
+    adata.uns['operations']=['load']
+    if save:
+        save_adata(adata,outpath)
+    return(adata)
+
+#import a single 10x file, do basic
+def import_dropseq(filename,outname='merged',outpath=None,filter_genes=500,save=False):
+    def gsub(regex, sub, l):
+        return([re.sub(regex, sub, x) for x in l])
+    if outpath is None:
+        outpath=sc.settings.figdir
+    adata=sc.read(os.path.join(filename,'summary',outname+'_umi_expression_matrix.tsv')).transpose()
+    adata.var.index=gsub('.*__','',adata.var.index)
+    adata.var_names_make_unique()
+    sc.pp.filter_cells(adata, min_genes=filter_genes)
+    adata.obs['n_counts'] = adata.X.sum(axis=1)
+    adata.uns['name']=filename.split(os.sep)[-1]
     adata.uns['operations']=['load']
     if save:
         save_adata(adata,outpath)
@@ -98,7 +114,7 @@ def import_files(fileList,refname,groupname="group",n_counts=400,percent_mito=.6
         a = sc.read_10x_h5(filename,refname)
         a.uns['operations']=['load_file']
         sc.pp.filter_cells(a, min_genes=filter_genes)
-        a.obs['n_counts'] = a.X.sum(axis=1).A1
+        a.obs['n_counts'] = a.X.sum(axis=1)
         a=quantify_ribo(a)
         a=quantify_mito(a)
         a=filter_custom(a,n_counts=n_counts, percent_mito=percent_mito,percent_ribo=percent_ribo)
@@ -106,7 +122,7 @@ def import_files(fileList,refname,groupname="group",n_counts=400,percent_mito=.6
         if log:
             sc.pp.log1p(a)
         a.uns['name']=filename.split(os.sep)[-3]
-        a.obs['batch']=a.uns['name']
+        a.obs['batch']=str(a.uns['name'])
         if fix_irreg is not None:
             a=fix_irreg(a)
         if tp_func is not None:
@@ -130,7 +146,6 @@ def concat_files(fileList,refname,outpath=None,groupname="group",n_counts=400,pe
     adata.uns['operations']=['concat_files']
     sc.settings.autosave=True
     sc.settings.autoshow=False
-    print(adata)
     if save:
         save_adata(adata,outpath)
     return(adata)
@@ -145,13 +160,14 @@ def concat_files_mnn(fileList,refname,outpath=None,groupname="group",n_top_genes
     var_subset=sc.pp.filter_genes_dispersion(  # select highly-variable genes
         adata.X, flavor='seurat', n_top_genes=n_top_genes, log=True)
     var_subset=adata.var.index[var_subset.gene_subset]
-    print(adata)
     print(adata.X)
     print(var_subset)
     adatas=import_files(fileList=fileList,refname=refname,groupname=groupname,n_counts=n_counts,percent_mito=percent_mito,percent_ribo=percent_ribo,filter_genes=filter_genes,log=True)
-    adata = sc.pp.mnn_correct(*adatas,var_index=var_subset)
+    adata,mnnList,angleList = sc.pp.mnn_correct(*adatas,var_index=var_subset,do_concatenate=True)
+    adata.uns['angles']=angleList
+    adata.uns['mnn']=angleList
     adata.uns['name']=groupname+"_MNN"
-    adata.uns['operations']=np.append(adata.uns['operations'],inspect.stack()[0][3])
+    adata.uns['operations']=['concat_files_mnn']
     if save:
         save_adata(adata,outpath)
     return(adata)
@@ -166,7 +182,7 @@ def filter_custom(adata,percent_mito=.5,percent_ribo=.5,n_counts=400):
     #adata=adata[adata.obs.percent_ribo<percent_ribo,:]
     adata._inplace_subset_obs(adata.obs.percent_ribo<percent_ribo)
     adata.raw=adata
-    print(adata)
+
     return(adata)
 
 #Count the percent of ribosomal genes per cell, add to obs
@@ -174,7 +190,7 @@ def quantify_ribo(adata,ribo_genes=None,save=False):
     if ribo_genes is None:
         ribo_genes=[name for name in adata.var_names if name.startswith('RPS') or name.startswith('RPL') ]
     adata.obs['percent_ribo'] = np.sum(
-        adata[:, ribo_genes].X, axis=1).A1 / np.sum(adata.X, axis=1).A1
+        adata[:, ribo_genes].X, axis=1) / np.sum(adata.X, axis=1)
     adata.uns['operations']=np.append(adata.uns['operations'],inspect.stack()[0][3])
     if save:
         save_adata(adata,sc.settings.figdir)
@@ -183,9 +199,9 @@ def quantify_ribo(adata,ribo_genes=None,save=False):
 #Count the percent of mitochondrial genes per cell, add to obs
 def quantify_mito(adata,mito_genes=None,save=False):
     if mito_genes is None:
-        mito_genes = [name for name in adata.var_names if name in ['ND1','ND2','ND4L','ND4','ND5','ND6','ATP6','ATP8','CYTB','COX1','COX2','COX3']]
+        mito_genes = [name for name in adata.var_names if name in ['ND1','ND2','ND4L','ND4','ND5','ND6','ATP6','ATP8','CYTB','COX1','COX2','COX3'] or 'MT-' in name]
     adata.obs['percent_mito'] = np.sum(
-        adata[:, mito_genes].X, axis=1).A1 / np.sum(adata.X, axis=1).A1
+        adata[:, mito_genes].X, axis=1) / np.sum(adata.X, axis=1)
     adata.uns['operations']=np.append(adata.uns['operations'],inspect.stack()[0][3])
     if save:
         save_adata(adata,sc.settings.figdir)
@@ -245,15 +261,15 @@ def neighbors_and_umap(adata,n_neighbors=100,save=False):
         save_adata(adata,sc.settings.figdir)
     return(adata)
 
-#Runs louvain clustering
-def louvain(adata,save=False):
-    sc.tl.louvain(adata)
+#Runs leiden clustering
+def leiden(adata,save=False):
+    sc.tl.leiden(adata)
     adata.uns['operations']=np.append(adata.uns['operations'],inspect.stack()[0][3])
-    sc.pl.umap(adata,color="louvain",save="_louvain")
+    sc.pl.umap(adata,color="leiden",save="_leiden")
     if 'X_tsne' in adata.obsm.keys():
-        sc.pl.tsne(adata,color="louvain",  save="_louvain")
+        sc.pl.tsne(adata,color="leiden",  save="_leiden")
     else:
-        sc.pl.umap(adata,color="louvain",  save="_louvain")
+        sc.pl.umap(adata,color="leiden",  save="_leiden")
     if save:
         save_adata(adata,sc.settings.figdir)
     return(adata)
@@ -264,13 +280,13 @@ def std_norm_transform(adata,n_top_genes=6000,log=True,tsne=True,save=False):
         sc.pp.recipe_zheng17(adata,n_top_genes=n_top_genes)
     else:
          sc.pp.recipe_zheng17(adata,n_top_genes=n_top_genes,log=False)
-    print(adata)
+
     #adata=norm_and_scale(adata,n_top_genes)
     adata=do_pca(adata)
     if tsne:
         adata=do_tsne(adata)
     adata=neighbors_and_umap(adata)
-    adata=louvain(adata)
+    adata=leiden(adata)
     if save:
         save_adata(adata,sc.settings.figdir)
     return(adata)
@@ -302,23 +318,22 @@ def cell_cycle_score(adata,save=False):
     s_genes=['MCM5', 'PCNA', 'TYMS', 'FEN1', 'MCM2', 'MCM4', 'RRM1', 'UNG', 'GINS2', 'MCM6', 'CDCA7', 'DTL', 'PRIM1', 'UHRF1', 'MLF1IP', 'HELLS', 'RFC2', 'RPA2', 'NASP', 'RAD51AP1', 'GMNN', 'WDR76', 'SLBP', 'CCNE2', 'UBR7', 'POLD3', 'MSH2', 'ATAD2', 'RAD51', 'RRM2', 'CDC45', 'CDC6', 'EXO1', 'TIPIN', 'DSCC1', 'BLM', 'CASP8AP2', 'USP1', 'CLSPN', 'POLA1', 'CHAF1B', 'BRIP1', 'E2F8']
     g2m_genes=['HMGB2', 'CDK1', 'NUSAP1', 'UBE2C', 'BIRC5', 'TPX2', 'TOP2A', 'NDC80', 'CKS2', 'NUF2', 'CKS1B', 'MKI67', 'TMPO', 'CENPF', 'TACC3', 'FAM64A', 'SMC4', 'CCNB2', 'CKAP2L', 'CKAP2', 'AURKB', 'BUB1', 'KIF11', 'ANP32E', 'TUBB4B', 'GTSE1', 'KIF20B', 'HJURP', 'CDCA3', 'HN1', 'CDC20', 'TTK', 'CDC25C', 'KIF2C', 'RANGAP1', 'NCAPD2', 'DLGAP5', 'CDCA2', 'CDCA8', 'ECT2', 'KIF23', 'HMMR', 'AURKA', 'PSRC1', 'ANLN', 'LBR', 'CKAP5', 'CENPE', 'CTCF', 'NEK2', 'G2E3', 'GAS2L3', 'CBX5', 'CENPA']
     sc.tl.score_genes_cell_cycle(adata,s_genes=s_genes,g2m_genes=g2m_genes)
-    sc.pl.violin(adata, ['G2M_score','S_score'], groupby='louvain')
+    sc.pl.violin(adata, ['G2M_score','S_score'], groupby='leiden')
     if 'X_tsne' in adata.obsm.keys():
-        sc.pl.tsne(adata, color=['G2M_score','S_score','phase','louvain'])
-    else:
-        sc.pl.umap(adata, color=['G2M_score','S_score','phase','louvain'])
+        sc.pl.tsne(adata, color=['G2M_score','S_score','phase','leiden'],save='_cc')
+    sc.pl.umap(adata, color=['G2M_score','S_score','phase','leiden'],save='_cc')
     adata.uns['operations']=np.append(adata.uns['operations'],inspect.stack()[0][3])
     if save:
         save_adata(adata,sc.settings.figdir)
     return(adata)
 
-#Calculates logistic regression enrichment of louvain clusters
+#Calculates logistic regression enrichment of leiden clusters
 def log_reg_diff_exp(adata,save=False):
-    sc.tl.rank_genes_groups(adata, 'louvain', method='logreg')
+    sc.tl.rank_genes_groups(adata, 'leiden', method='logreg')
     result = adata.uns['rank_genes_groups']
     groups = result['names'].dtype.names
     df=pd.DataFrame({group + '_' + key[:1]: result[key][group] for group in groups for key in ['names', 'scores']})
-    df.to_csv(os.path.join(sc.settings.figdir,"LouvainLogRegMarkers.csv"))
+    df.to_csv(os.path.join(sc.settings.figdir,"leidenLogRegMarkers.csv"))
     adata.uns['operations']=np.append(adata.uns['operations'],inspect.stack()[0][3])
     if save:
         save_adata(adata,sc.settings.figdir)
@@ -326,7 +341,7 @@ def log_reg_diff_exp(adata,save=False):
 
 #Carry out brain atlas marker expresion, preprocessing if very complicated to process class and subclasses of markers
 #Uses score_genes
-def marker_analysis(adata,markerpath='https://docs.google.com/spreadsheets/d/e/2PACX-1vTz5a6QncpOOO-f3FHW2Edomn7YM5mOJu4z_y07OE3Q4TzcRr14iZuVyXWHv8rQuejzhhPlEBBH1y0V/pub?gid=1154528422&single=true&output=tsv',save=False):
+def marker_analysis(adata,variables=['leiden','region'],markerpath='https://docs.google.com/spreadsheets/d/e/2PACX-1vTz5a6QncpOOO-f3FHW2Edomn7YM5mOJu4z_y07OE3Q4TzcRr14iZuVyXWHv8rQuejzhhPlEBBH1y0V/pub?gid=1154528422&single=true&output=tsv',save=False):
     sc.set_figure_params(color_map="Purples")
     import random
     markerpath=os.path.expanduser(markerpath)
@@ -338,7 +353,7 @@ def marker_analysis(adata,markerpath='https://docs.google.com/spreadsheets/d/e/2
     uniqueClasses=set([y for x in markers[markers.keys()[2]] for y in x if y!='nan'])
     uniqueSubClasses=set([z for x in markers[markers.keys()[3]] for y in x for z in y if z!='nan'])
     comboClasses=[]
-    print(markers)
+    #print(markers)
     for i in range(markers.shape[0]):
         rowlist=[]
         for j in range(len(markers[markers.keys()[2]][i])):
@@ -369,16 +384,15 @@ def marker_analysis(adata,markerpath='https://docs.google.com/spreadsheets/d/e/2
             print(len(markerDict[k]))
             sc.tl.score_genes(adata,gene_list=markerDict[k],score_name=k,gene_pool= markerDict[k]+random.sample(adata.var.index.tolist(),min(4000,adata.var.index.shape[0])))
             markerPlotGroups.append(k)
-
-    pd.DataFrame(adata.obs.groupby(['louvain']).describe()).to_csv(os.path.join(sc.settings.figdir,"ClusterMarkerSumStats.csv"))
-    #This belongs outside of pipeline function
-    pd.DataFrame(adata.obs.groupby(['region']).describe()).to_csv(os.path.join(sc.settings.figdir,"RegionMarkerSumStats.csv"))
+    adata.uns['marker_groups']=list(markerDict.keys())
+    for tag in variables:
+        pd.DataFrame(adata.obs.groupby(tag).describe()).to_csv(os.path.join(sc.settings.figdir, tag+"MarkerSumStats.csv"))
 
     if 'X_tsne' in adata.obsm.keys():
         sc.pl.tsne(adata, color=markerPlotGroups,save="_Marker_Group")
     sc.pl.umap(adata, color=markerPlotGroups,save="_Marker_Group")
 
-    sc.pl.violin(adata, markerPlotGroups, groupby='louvain',save="_Marker_Group_violins")
+    sc.pl.violin(adata, markerPlotGroups, groupby='leiden',save="_Marker_Group_violins")
     for i in markerDictClass:
         if 'X_tsne' in adata.obsm.keys():
             sc.pl.tsne(adata, color=sorted(markerDictClass[i]),save="_"+str(i)+"_Marker")
@@ -472,7 +486,7 @@ def sc_hdp(adata,alpha=1,eta=.01,gamma=1,eps=1e-5,save=False):
                 topic = model.m_lambda[topicid]
                 topic = topic / topic.sum() # normalize to probability dist
                 p.append(topic)
-            return(np.array(p).T)
+            return(np.array(p).T,list(range(model.m_T)))
         else:
             for topicid in range(model.num_terms):
                 topic = model.get_term_topics(topicid,minimum_probability=eps)
@@ -503,29 +517,24 @@ def sc_hdp(adata,alpha=1,eta=.01,gamma=1,eps=1e-5,save=False):
     adata=adata[:,adata.var.index.argsort()]
     model = gensim.models.HdpModel(corpus=gensim.matutils.Sparse2Corpus( adata.X.T),id2word=gensim.corpora.dictionary.Dictionary([adata.var.index.tolist()]),alpha=alpha,gamma=gamma,eta=eta)
     print(model)
+    print(model.lda_alpha)
+    print(model.lda_beta)
     modelLDA=model.suggested_lda_model()
+    #modelLDA=model
     #Will drop topics even with eps = 0.0 ... idk why
     doc_topic,included_topics=get_doc_topic(gensim.matutils.Sparse2Corpus(adata.X.T),modelLDA,eps=eps)
-    print(doc_topic)
-    print(np.array(doc_topic))
-    print(doc_topic.shape)
-    print(type(doc_topic))
-    print(included_topics)
     #Included topics from words seems unnecessary empirically, but will catch in variable anyway
     word_topic,included_topics_from_words=get_topic_to_wordids(modelLDA,eps=0.0)
     doc_topic=doc_topic[:,intersection(included_topics,included_topics_from_words)]
     word_topic=word_topic[:,intersection(included_topics,included_topics_from_words)]
     #Slim down the topics to the ones that are well represented in cells (sum > eps)
     included_topics=np.array(np.sum(doc_topic,axis=0)/sum(np.sum(doc_topic,axis=0))>eps)[0]
-    print(included_topics)
-    print(len(included_topics))
-    print(word_topic)
-    print(word_topic.shape)
     doc_topic=doc_topic[:,included_topics]
     word_topic=word_topic[:,included_topics]
     adata.varm['gene_topic']=word_topic
     adata.obsm['cell_topic']=doc_topic
-    adata.uns['operations']=np.append(adata.uns['operations'],inspect.stack()[0][3])
+    if 'operations' in adata.uns.keys():
+        adata.uns['operations']=np.append(adata.uns['operations'],inspect.stack()[0][3])
     if save:
         save_adata(adata,sc.settings.figdir)
     table_top_words(np.array(word_topic),adata.var.index).to_csv(os.path.join(sc.settings.figdir,"TopicMarkers.txt"))
@@ -658,7 +667,7 @@ def sc_lda(adata,n_components=12,topic_word_prior=None,doc_topic_prior=None,save
 def rna_velocity(adata,loomfile,basis="tsne",save=True):
     sc.tl.addCleanObsNames(adata)
     adata,vdata=sc.tl.rna_velocity(adata,loomfile=loomfile,basis=basis)
-    sc.tl.plot_velocity_arrows(adata,basis=basis,cluster='louvain',cluster_colors='louvain_colors')
+    sc.tl.plot_velocity_arrows(adata,basis=basis,cluster='leiden',cluster_colors='leiden_colors')
     plt.savefig(os.path.expanduser(sc.settings.figdir +basis+"_VelocityArrows.pdf"))
     adata.uns['operations']=np.append(adata.uns['operations'],inspect.stack()[0][3])
     if save:
