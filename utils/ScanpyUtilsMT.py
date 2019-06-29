@@ -40,10 +40,10 @@ def template(adata,save=False):
     return(None)
 
 #import a single 10x file, do basic
-def import_file(filename,refname,outpath=None,filter_genes=30,save=False):
+def import_file(filename,refname=None,outpath=None,filter_genes=30,save=False):
     if outpath is None:
         outpath=sc.settings.figdir
-    adata=sc.read_10x_h5(filename,refname)
+    adata=sc.read_10x_mtx(filename)
     adata.var_names_make_unique()
     #sc.pp.filter_cells(adata, min_genes=filter_genes)
     adata.obs['n_counts'] = adata.X.sum(axis=1)
@@ -73,12 +73,28 @@ def import_dropseq(filename,outname='merged',outpath=None,filter_genes=500,save=
 #Use these functions to modularize munging of tp, region names from name string
 #These can be remade for other applications, or generalized so you can pass a list of functions
 def tp_format_macaque(name):
-    return(float(re.sub("^E","",re.search("E[0-9]+",name).group(0))))
+    if isinstance(name, str):
+        searched=re.search("E[0-9]+",name)
+        if searched is None:
+            return('nan')
+        tp=re.sub("^E","",searched.group(0))
+        tp=float(tp)
+        return(tp)
+    else:
+        return('nan')
 
 def region_format_macaque(name):
-    region=re.sub('E[0-9]+',"",name)
-    region=re.sub("^_","",region)
-    region=region.split('_')[0]
+    if isinstance(name, str):
+        region=re.sub('E[0-9]+',"",name)
+        region=re.sub("^_","",region)
+        if '_' not in name:
+            return('nan')
+        spl=region.split('_')
+        if len(spl) < 1:
+            return('nan')
+        region=spl[len(spl)-1]
+    else:
+        region='nan'
     return(region)
 
 def macaque_process_irregular_names(adata):
@@ -111,7 +127,7 @@ def import_files(fileList,refname,groupname="group",n_counts=400,percent_mito=.6
     adatas=[]
     batch_categories=[]
     for filename in fileList:
-        a = sc.read_10x_h5(filename,refname)
+        a = sc.read_10x_mtx(filename,refname)
         a.uns['operations']=['load_file']
         sc.pp.filter_cells(a, min_genes=filter_genes)
         a.obs['n_counts'] = a.X.sum(axis=1)
@@ -663,17 +679,22 @@ def sc_lda(adata,n_components=12,topic_word_prior=None,doc_topic_prior=None,save
         save_adata(adata,sc.settings.figdir)
     return(adata)
 
-#TODO
-def rna_velocity(adata,loomfile,basis="tsne",save=True):
-    sc.tl.addCleanObsNames(adata)
-    adata,vdata=sc.tl.rna_velocity(adata,loomfile=loomfile,basis=basis)
-    sc.tl.plot_velocity_arrows(adata,basis=basis,cluster='leiden',cluster_colors='leiden_colors')
-    plt.savefig(os.path.expanduser(sc.settings.figdir +basis+"_VelocityArrows.pdf"))
-    adata.uns['operations']=np.append(adata.uns['operations'],inspect.stack()[0][3])
-    if save:
-        save_adata(adata,outpath)
-        vdata.write(os.path.join(outpath,"_".join([adata.uns['name']]+list(adata.uns['operations']))+"_Velocitydu.h5ad"))
-    return(adata,vdata)
+
+def cellphonedb(adata,annotation_name):
+    import subprocess
+    df_expr_matrix = adata.X 
+    df_expr_matrix = df_expr_matrix.T 
+    df_expr_matrix = pd.DataFrame(df_expr_matrix.toarray()) # Set cell ids as columns 
+    df_expr_matrix.columns = adata.obs.index # Genes should be either Ensembl IDs or gene names 
+    df_expr_matrix.set_index(adata.raw.var.index, inplace=True) 
+    savepath_counts=os.path.join(sc.settings.figdir,'cellphonedbInputExpression.txt')
+    df_expr_matrix.to_csv(savepath_counts,sep=’\t’) # generating meta file 
+    df_meta = pd.DataFrame(data={’Cell’: list(adata.obs.index), ‘cell_type’: list(adata.obs[annotation_name])})
+    df_meta.set_index(’Cell’,inplace=True) 
+    savepath_meta=os.path.join(sc.settings.figdir,'cellphonedbInputMeta.txt')
+    df_meta.to_csv(savepath_meta, sep=’\t’)
+    subprocess.run('cellphonedb method statistical_analysis '+ str(savepath_meta) +' '+ str(savepath_counts),shell=True)
+
 
 #From UMI tools package
 def getKneeEstimate(cell_barcode_counts,
