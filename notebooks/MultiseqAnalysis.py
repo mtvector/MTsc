@@ -224,7 +224,7 @@ sc.pl.umap(adata, color=['ActualRegion'],save='_ActualRegion')
 
 sc.pl.umap(adata[['Negative' not in x and 'Doublet' not in x for x in adata.obs['region']],:], color=['leiden'],save='_screenedleiden')
 sc.pl.umap(adata[['Negative' not in x and 'Doublet' not in x for x in adata.obs['region']],:], color=['region'],save='_screenedsample')
-sc.pl.umap(adata[['Negative' not in x and 'Doublet' not in x for x in adata.obs['region']],:], color=['simpleregion'],save='_screenedsimplesample')
+sc.pl.umap(adata[['Negative' not in x and 'Doublet' not in x for x in adata.obs['region']],:], color=['simpleregion'],save='_screenedsimpleregion')
 
 
 # In[26]:
