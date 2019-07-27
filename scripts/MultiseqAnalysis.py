@@ -5,9 +5,9 @@
 
 import os
 import scanpy
-import scanpy.api as sc
+import scanpy as sc
 sc.settings.verbosity = 3  # verbosity: errors (0), warnings (1), info (2), hints (3)
-sc.settings.set_figure_params(dpi=310)  # dots (pixels) per inch determine size of inline figures
+sc.settings.set_figure_params(dpi=300)  # dots (pixels) per inch determine size of inline figures
 sc.settings.cachedir=os.path.expanduser('~/macaquecache/')
 sc.logging.print_versions()
 import pandas as pd
@@ -105,11 +105,7 @@ for s in sampletable.keys():
     print(sorted(Counter(sampletable[s][1]).keys()))
 
 
-
-
 # In[10]:
-
-
 
 
 def cell_cycle_score(adata,save=False):
@@ -137,7 +133,7 @@ sampleDirs=dict(zip(sampletable.keys(),['E65-2019A_AND_E65-2019B_MULTI-SEQ_1_Out
 
 adatas=[]
 for s in sampletable.keys():
-    adata = sc.read_10x_mtx('/ye/yelabstore3/mtschmitz/macaqueseq2/combined/'+sampleDirs[s]+'/outs/filtered_feature_bc_matrix',cache=True)
+    adata = sc.read_10x_mtx('/scrapp2/mtschmitz/'+sampleDirs[s]+'/outs/filtered_feature_bc_matrix',cache=True)
     adata.obs.index=[re.sub("-1","",x) for x in adata.obs.index]
     sampletable[s].columns=['region']
     adata.obs.insert(0,'region',sampletable[s].loc[adata.obs.index,'region'])
@@ -203,7 +199,7 @@ sc.pp.normalize_per_cell(adata, counts_per_cell_after=1e4)
 
 sc.pp.log1p(adata)
 
-sc.pp.highly_variable_genes(adata, n_top_genes=8000)
+sc.pp.highly_variable_genes(adata, n_top_genes=10000)
 sc.pp.scale(adata, max_value=10)
 #sc.pp.regress_out(adata,'n_counts')
 
@@ -298,8 +294,25 @@ def marker_analysis(adata,variables=['leiden','region'],markerpath='https://docs
 
 marker_analysis(adata,variables=['leiden','region'],markerpath=os.path.expanduser('~/markers.txt'))
 
-sc.tl.rank_genes_groups(adata,'region')
-sc.tl.rank_genes_groups(adata,'leiden')
-sc.tl.rank_genes_groups(adata,'batch')
-sc.pl.rank_genes_groups(adata)
- 
+import scvelo as scv
+scv.settings.figdir=os.path.expanduser('~/figs/')
+scv.settings.autosave=True
+scv.settings.autoshow=False
+
+headpath=os.path.expanduser("/scrapp2/mtschmitz")
+velodirs=["E65-2019A_AND_E65-2019B_MULTI-SEQ_1_Out_velocyto","E65-2019A_AND_E65-2019B_MULTI-SEQ_2_Out_velocyto","E65-2019A_AND_E65-2019B_MULTI-SEQ_3_Out_velocyto","E80-2019_MULTI-SEQ_Out_velocyto","E90-2019_MULTI-SEQ_Out_velocyto"]
+velofiles=[os.listdir(os.path.join(headpath,x))[0] for x in velodirs]
+velopaths=[os.path.join(headpath,x,y) for x,y in zip(velodirs,velofiles)]
+velolooms=[scv.read(x,cache=True) for x in velopaths]
+for i in range(len(velolooms)):
+    velolooms[i].obs.index=[re.sub("-1","",x) for x in velolooms[i].obs.index]
+    velolooms[i].obs.insert(0,'batch',velodirs[i])
+vdata=sc.AnnData.concatenate(*velolooms)
+print(vdata.obs)
+vdata.var_names_make_unique()
+avdata=scv.utils.merge(adata,vdata)
+scv.pp.filter_and_normalize(avdata)
+scv.tl.velocity_graph(avdata)
+scv.tl.velocity_embedding(avdata, basis='umap')
+scv.pl.velocity_embedding(avdata, basis='umap',save='Embed')
+scv.pl.velocity_embedding_grid(avdata, basis='umap',save='Grid')

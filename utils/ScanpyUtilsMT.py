@@ -1,6 +1,6 @@
 import os
 import scanpy
-import scanpy.api as sc
+import scanpy as sc
 import pandas as pd
 import numpy as np
 import sklearn
@@ -338,7 +338,7 @@ def cell_cycle_score(adata,save=False):
     if 'X_tsne' in adata.obsm.keys():
         sc.pl.tsne(adata, color=['G2M_score','S_score','phase','leiden'],save='_cc')
     sc.pl.umap(adata, color=['G2M_score','S_score','phase','leiden'],save='_cc')
-    adata.uns['operations']=np.append(adata.uns['operations'],inspect.stack()[0][3])
+    #adata.uns['operations']=np.append(adata.uns['operations'],inspect.stack()[0][3])
     if save:
         save_adata(adata,sc.settings.figdir)
     return(adata)
@@ -350,14 +350,14 @@ def log_reg_diff_exp(adata,save=False):
     groups = result['names'].dtype.names
     df=pd.DataFrame({group + '_' + key[:1]: result[key][group] for group in groups for key in ['names', 'scores']})
     df.to_csv(os.path.join(sc.settings.figdir,"leidenLogRegMarkers.csv"))
-    adata.uns['operations']=np.append(adata.uns['operations'],inspect.stack()[0][3])
+    #adata.uns['operations']=np.append(adata.uns['operations'],inspect.stack()[0][3])
     if save:
         save_adata(adata,sc.settings.figdir)
     return(adata)
 
 #Carry out brain atlas marker expresion, preprocessing if very complicated to process class and subclasses of markers
 #Uses score_genes
-def marker_analysis(adata,variables=['leiden','region'],markerpath='https://docs.google.com/spreadsheets/d/e/2PACX-1vTz5a6QncpOOO-f3FHW2Edomn7YM5mOJu4z_y07OE3Q4TzcRr14iZuVyXWHv8rQuejzhhPlEBBH1y0V/pub?gid=1154528422&single=true&output=tsv',save=False):
+def marker_analysis(adata,variables=['leiden','region'],markerpath='https://docs.google.com/spreadsheets/d/e/2PACX-1vTz5a6QncpOOO-f3FHW2Edomn7YM5mOJu4z_y07OE3Q4TzcRr14iZuVyXWHv8rQuejzhhPlEBBH1y0V/pub?gid=1154528422&single=true&output=tsv',save=False,prefix=''):
     sc.set_figure_params(color_map="Purples")
     import random
     markerpath=os.path.expanduser(markerpath)
@@ -402,19 +402,19 @@ def marker_analysis(adata,variables=['leiden','region'],markerpath='https://docs
             markerPlotGroups.append(k)
     adata.uns['marker_groups']=list(markerDict.keys())
     for tag in variables:
-        pd.DataFrame(adata.obs.groupby(tag).describe()).to_csv(os.path.join(sc.settings.figdir, tag+"MarkerSumStats.csv"))
+        pd.DataFrame(adata.obs.groupby(tag).describe()).to_csv(os.path.join(sc.settings.figdir, tag+prefix+"MarkerSumStats.csv"))
 
     if 'X_tsne' in adata.obsm.keys():
-        sc.pl.tsne(adata, color=markerPlotGroups,save="_Marker_Group")
-    sc.pl.umap(adata, color=markerPlotGroups,save="_Marker_Group")
+        sc.pl.tsne(adata, color=markerPlotGroups,save=prefix+"_Marker_Group")
+    sc.pl.umap(adata, color=markerPlotGroups,save=prefix+"_Marker_Group")
 
-    sc.pl.violin(adata, markerPlotGroups, groupby='leiden',save="_Marker_Group_violins")
+    sc.pl.violin(adata, markerPlotGroups, groupby='leiden',save=prefix+"_Marker_Group_violins")
     for i in markerDictClass:
         if 'X_tsne' in adata.obsm.keys():
-            sc.pl.tsne(adata, color=sorted(markerDictClass[i]),save="_"+str(i)+"_Marker")
-        sc.pl.umap(adata, color=sorted(markerDictClass[i]),save="_"+str(i)+"_Marker")
+            sc.pl.tsne(adata, color=sorted(markerDictClass[i]),save=prefix+"_"+str(i)+"_Marker")
+        sc.pl.umap(adata, color=sorted(markerDictClass[i]),save=prefix+"_"+str(i)+"_Marker")
     #General
-    adata.uns['operations']=np.append(adata.uns['operations'],inspect.stack()[0][3])
+    #adata.uns['operations']=np.append(adata.uns['operations'],inspect.stack()[0][3])
     if save:
         save_adata(adata,sc.settings.figdir)
     return(adata)
@@ -688,11 +688,11 @@ def cellphonedb(adata,annotation_name):
     df_expr_matrix.columns = adata.obs.index # Genes should be either Ensembl IDs or gene names 
     df_expr_matrix.set_index(adata.raw.var.index, inplace=True) 
     savepath_counts=os.path.join(sc.settings.figdir,'cellphonedbInputExpression.txt')
-    df_expr_matrix.to_csv(savepath_counts,sep=’\t’) # generating meta file 
-    df_meta = pd.DataFrame(data={’Cell’: list(adata.obs.index), ‘cell_type’: list(adata.obs[annotation_name])})
-    df_meta.set_index(’Cell’,inplace=True) 
+    df_expr_matrix.to_csv(savepath_counts,sep='\t') # generating meta file 
+    df_meta = pd.DataFrame(data={'Cell': list(adata.obs.index), 'cell_type': list(adata.obs[annotation_name])})
+    df_meta.set_index('Cell',inplace=True) 
     savepath_meta=os.path.join(sc.settings.figdir,'cellphonedbInputMeta.txt')
-    df_meta.to_csv(savepath_meta, sep=’\t’)
+    df_meta.to_csv(savepath_meta, sep='\t')
     subprocess.run('cellphonedb method statistical_analysis '+ str(savepath_meta) +' '+ str(savepath_counts),shell=True)
 
 
