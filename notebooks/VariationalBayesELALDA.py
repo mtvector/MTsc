@@ -48,30 +48,31 @@ def from_epdf(param, ambient_counts):
     return Interpolated(param, x, y)
 
 
-maxgenes=12000
-n_iterations=200
+maxgenes=10000
+n_iterations=2000
 #Number of topics, not including ambient topic
 K=10
+subtractive=False
 #adatapath=os.path.expanduser('/scrapp2/mtschmitz/5k_pbmc_v3')
 #genomename="refdata-celranger-mmul8-toplevel"
 #genomename=''
 #samplename='5kPBMC'
 
-headpath='/scrapp2/mtschmitz/macaqueseq2/'
-adatapaths=[os.path.join(headpath,x) for x in  os.listdir('/scrapp2/mtschmitz/macaqueseq2/')]
-samplenames=[re.sub('_Out','',x) for x in  os.listdir('/scrapp2/mtschmitz/macaqueseq2/')]
+headpath='/wynton/scratch/mtschmitz/macaqueseq/'
+adatapaths=[os.path.join(headpath,x) for x in  os.listdir(headpath)]
+samplenames=[re.sub('_Out','',x) for x in  os.listdir(headpath)]
 #adatapaths=['/scrapp2/mtschmitz/E65-2019A_AND_E65-2019B_MULTI-SEQ_1_Out','/scrapp2/mtschmitz/E65-2019A_AND_E65-2019B_MULTI-SEQ_2_Out','/scrapp2/mtschmitz/E65-2019A_AND_E65-2019B_MULTI-SEQ_3_Out','/scrapp2/mtschmitz/E80-2019_MULTI-SEQ_Out','/scrapp2/mtschmitz/E90-2019_MULTI-SEQ_Out','/scrapp2/mtschmitz/1k_hgmm','/scrapp2/mtschmitz/5k_pbmc_v3','/scrapp2/mtschmitz/E40_motor_Out','E50_motor_Out','E65_motor_Out','E80motor_Out','E100motor_Out']
 #genomenames=['','','','','','','',"refdata-celranger-mmul8-toplevel","refdata-celranger-mmul8-toplevel","refdata-celranger-mmul8-toplevel","refdata-celranger-mmul8-toplevel","refdata-celranger-mmul8-toplevel"]
 #samplenames=['MS65A','MS65B','MS65C','MS80','MS90','1kHGMM','5kPCMB','E40','E50','E65','E80','E100']
 ind=np.random.choice(list(range(len(adatapaths))),size=len(adatapaths)-1)
 #ind=[0,1]
 for adatapath,samplename in zip(np.array(adatapaths)[ind],np.array(samplenames)[ind]):
-    print(samplename, flush=True)
-    sc.settings.figdir=os.path.expanduser('~/figs/'+samplename+'')
+    print(samplename+str(subtractive), flush=True)
+    sc.settings.figdir=os.path.expanduser('~/figs/'+str(subtractive)+'/'+samplename)
     if not os.path.exists(sc.settings.figdir):
             os.makedirs(sc.settings.figdir)
     
-    if os.path.exists(os.path.join(adatapath,'outs/ambientsubtracted.h5ad')):
+    if os.path.exists(os.path.join(adatapath,'outs/ambientsubtracted'+str(subtractive)+'.h5ad')):
         continue
         
     adata = sc.read_10x_mtx(os.path.join(adatapath,'outs/raw_feature_bc_matrix'),cache=True)
@@ -114,8 +115,8 @@ for adatapath,samplename in zip(np.array(adatapaths)[ind],np.array(samplenames)[
     model1 = pm.Model()
     (D,V)=tf.shape
     print(D,V)
-    alpha = np.ones((1, K))
-    phi = np.ones((1, V))
+    alpha = np.ones((1, K))*.1
+    beta = np.ones((1, V))*.1
     sparse_array=shared(np.array([tf.nonzero()[0],tf.nonzero()[1],tf.data]).T.astype('int32'))
     tt.cast(sparse_array,'int32')
     rowsums=shared(np.sum(tf,axis=1).T)
@@ -137,30 +138,41 @@ for adatapath,samplename in zip(np.array(adatapaths)[ind],np.array(samplenames)[
             phi=tt.concatenate([phi,phiAmbient],axis=0)
         else:
             phi=phi
-        ll = value[:,2] * pm.math.logsumexp(tt.log(theta[value[:,0].astype('int32')]+1e-9)+ tt.log(phi.T[value[:,1].astype('int32')]+1e-9),axis=1).ravel()                                                                  
-        #ambientll=ambient.distribution.logp(tt.log10((rowsums+1e-9)*(theta[:,theta.shape[1]-1]+1e-9)))
-        ambientll=ambient(tt.log10((rowsums+1e-9)*(theta[:,theta.shape[1]-1]+1e-9)))
-        #tt.printing.Print('l')(ambient.distribution.logp(tt.log10((rowsums+1e-9)*(theta[:,theta.shape[1]-1]+1e-9))))
-        return tt.sum(ll) + tt.sum(ambientll)*(sumall/rowsums.shape[1])
-        #return tt.sum(ll)/sumall + tt.sum(ambientll)/rowsums.shape[1]
-    
+        #ll = value[:,2] * pm.math.logsumexp(tt.log(theta[value[:,0].astype('int32')]+1e-9)+ tt.log(phi.T[value[:,1].astype('int32')]+1e-9),axis=1).ravel()                                                                  
+        #ambientll=ambient(tt.log10((rowsums)*(theta[:,theta.shape[1]-1])+1e-9))
+        ll = value[:,2] * pm.math.logsumexp(tt.log(theta[value[:,0].astype('int32')]+1e-10)+ tt.log(phi.T[value[:,1].astype('int32')]+1e-10),axis=1).ravel()                                                                  
+        ambientll=ambient(tt.log10((rowsums+1e-10)*(theta[:,theta.shape[1]-1]+1e-10)))
+        tt.printing.Print('l')(tt.sum(ambientll))
+        tt.printing.Print('l')(tt.sum(ll))
+        tt.printing.Print('l')(sumall)
+        tt.printing.Print('l')(ambientll.shape[1])
+        tt.printing.Print('sub')((tt.sum(ll)-sumall))
+        tt.printing.Print('sub')(tt.sum(ambientll)-rowsums.shape[1])
+        tt.printing.Print('div')((tt.sum(ll)/sumall))
+        tt.printing.Print('div')(tt.sum(ambientll)/rowsums.shape[1])
+        #return((ambientll.shape[1]*(tt.sum(ll)/sumall) + (tt.sum(ambientll))))
+        #return tt.sum(ll) + tt.sum(ambientll)*(sumall/rowsums.shape[1])
+        #return(tt.sum(ll)+ tt.sum(ambientll))
+        return((1e6*(tt.sum(ll)/sumall) + (tt.sum(ambientll)/ambientll.shape[1])*3e3))
+        #return (tt.sum(ll)-sumall) + (tt.sum(ambientll)-rowsums.shape[1])
+
     with model1: 
-        theta = pm.Dirichlet("theta", a=alpha, shape=(D, K), transform=t_stick_breaking(1e-9)).astype('float32')
-        phi = pm.Dirichlet("phi", a=phi, shape=(K-1, V), transform=t_stick_breaking(1e-9)).astype('float32')
-        #ambient=from_epdf('ambient',ambient_counts)
-        #doc = pm.DensityDist('doc', log_lda, observed=dict(theta=theta, phi=phi,ambient=ambient, value=sparse_array,phiAmbient=np.matrix([phiAmbientDict[x] for x in feature_names]),rowsums=rowsums,sumall=sumall))
+        theta = pm.Dirichlet("theta", a=alpha, shape=(D, K), transform=t_stick_breaking(1e-9))#.astype('float32')
+        #Kth topic is fixed as ambient distribution, therefore not learned
+        phi = pm.Dirichlet("phi", a=beta, shape=(K-1, V), transform=t_stick_breaking(1e-9))#.astype('float32')
         doc = pm.DensityDist('doc', log_lda, observed=dict(theta=theta,
             phi=phi,
-            value=sparse_array,phiAmbient=np.matrix([phiAmbientDict[x] for x in feature_names]),rowsums=rowsums,sumall=sumall))
-
-    eta = .5
+            value=sparse_array,phiAmbient=np.matrix([phiAmbientDict[x] for x in feature_names]),rowsums=rowsums,sumall=sumall))    
+    eta = .3
     s = shared(eta)
     def reduce_rate(a, h, i):
-        s.set_value(eta/((i/2)+1)**.5)    
+        s.set_value(eta/((i/200)+1)**.4) 
+    
     with model1:    
-        inference = pm.ADVI()
-        approx = pm.fit(n=n_iterations,method= inference,obj_optimizer=pm.adam(learning_rate=s),callbacks=[reduce_rate,pm.callbacks.CheckParametersConvergence(diff='absolute')])
-
+        #inference = pm.ADVI()
+        #inference = pm.FullRankADVI()
+        inference=pm.variational.NFVI()
+        approx = pm.fit(n=n_iterations,method=inference,obj_optimizer=pm.adam(learning_rate=s),callbacks=[reduce_rate])
 
     tr1 = approx.sample(draws=1000)
     advi_elbo = pd.DataFrame(
@@ -171,14 +183,13 @@ for adatapath,samplename in zip(np.array(adatapaths)[ind],np.array(samplenames)[
     plt.savefig(os.path.join(sc.settings.figdir,'ELBO.png'))
     theta=tr1['theta'].mean(0)
     theta=anndata.AnnData(theta,var=pd.DataFrame(index=['lda_'+str(i) for i in range(K) ]),obs=pd.DataFrame(index=list(adata.obs.index)))
+    for i in range(theta.shape[1]):
+        freshadata.obs['lda_'+str(i)]=theta[:,i].X
 
     # In[15]:
     phi=tr1['phi'].mean(0)
     phi=anndata.AnnData(phi,var=pd.DataFrame(index=feature_names),obs=pd.DataFrame(index=['lda_'+str(i) for i in range(K-1) ]))
     
-    #phizeros=set(freshadata.var.index)-set(phiAmbientDict.keys())
-    #phiAmbientDict.update(dict.fromkeys(list(phizeros),0))
-    last=set(freshadata.var.index)-set(phiAmbientDict.keys())
     for i in range(phi.shape[0]):
         freshadata.var['lda_'+str(i)]=0
         freshadata.var.loc[list(phiAmbientDict.keys()),'lda_'+str(i)]=phi[i,:][:,list(phiAmbientDict.keys())].X
@@ -191,51 +202,68 @@ for adatapath,samplename in zip(np.array(adatapaths)[ind],np.array(samplenames)[
     #Reassign phiAmbient now that matrix is reordered
     phiAmbientDict=dict(zip(list(freshadata.var.index),list(freshadata.var['lda_'+str(K-1)])))
     #phiAmbient=np.array(freshadata.var['lda_'+str(K-1)])    
-    
     tmpmat=scipy.sparse.csr_matrix(freshadata.shape)
     
-    for ci,c in tqdm(enumerate(freshadata.obs.index)):
-        farow=freshadata[c,:].X
-        rowinds=farow.nonzero()[0]
-        countz=farow[rowinds]
-        rownames=freshadata.var.index[rowinds]
-        indmultiset=[[rowinds[i]]*int(countz[i]) for i in range(len(countz))]
-        vals = [item for sublist in indmultiset for item in sublist]
-        #phimultiset=[[phiAmbientDict[rowname]]*int(countz[i]) for i,rowname in enumerate(rownames)]
-        phimultiset=[[phiAmbientDict[rowname]/countz[i]]*int(countz[i]) for i,rowname in enumerate(rownames)]
-        pvals = [item for sublist in phimultiset for item in sublist]
-        '''vals=[]
-        pvals=[]
-        for ii,i in zip(freshadata[c,:].X.nonzero()[0],freshadata.var.index[freshadata[c,:].X.nonzero()[0]]):
-            #make list of all genes observed in cell, repeated by number of counts
-            t0=time.process_time()
-            vals=vals+[ii]*int(freshadata[c,i].X)
-            print("0",time.process_time()-t0)
-            t0=time.process_time()
-            pvals=pvals+[phiAmbientDict[i]]*int(freshadata[c,i].X)
-            print("1",time.process_time()-t0)'''
-        if len(vals)>0:
-            #Select counts based on phiAmbient
-            cellcount=np.sum(freshadata[c,:][:,feature_names].X)
-            countremove=Counter(np.random.choice(vals,replace=False,size=min(len(vals),int(theta[c,theta.shape[1]-1].X*cellcount)),p=np.array(pvals)/sum(pvals))) 
-            tmpmat[ci,list(countremove.keys())]=list(countremove.values())
+    theta=np.matrix(freshadata.obs.loc[:,['lda' in x for x in freshadata.obs.columns]])
+    phi=np.matrix(freshadata.var.loc[:,['lda' in x for x in freshadata.var.columns]])
 
-    print(tmpmat.sum(), flush=True)
-    #subtract the values that are probabalistically likely to be ambient
-    freshadata.X=freshadata.X-tmpmat
-    print(np.corrcoef(tmpmat.sum(0),[phiAmbientDict[i] for i in freshadata.var.index]), flush=True)
+    #Subtracts expected value of ambient (pamb)
+    if not subtractive:
+        #txp=theta[:,0:(K-1)]*phi[:,0:(K-1)].T
+        for ci,c in tqdm(enumerate(freshadata.obs.index)):
+            farow=freshadata[c,:].X
+            rowinds=farow.nonzero()[0]
+            countz=farow[rowinds]
+            rownames=freshadata.var.index[rowinds]
+            rowtxp=(theta[ci,0:(K-1)]*phi[:,0:(K-1)].T).A1 #memory saving #txp[ci,:].A1
+            indmultiset=[[rowinds[i]]*int(countz[i]) for i in range(len(countz))]
+            vals = [item for sublist in indmultiset for item in sublist]
+            phimultiset=[[rowtxp[rowind]/countz[i]]*int(countz[i]) for i,rowind in enumerate(rowinds)]
+            pvals = [item for sublist in phimultiset for item in sublist]
+            if len(vals)>0:
+                #Select counts based on phiAmbient
+                cellcount=np.sum(freshadata[c,:][:,feature_names].X)
+                countremove=Counter(np.random.choice(vals,replace=False,size=min(len(vals),int((1-theta[ci,(K-1)])*cellcount)),p=np.array(pvals)/sum(pvals))) 
+                tmpmat[ci,list(countremove.keys())]=list(countremove.values())
+        ambmat=freshadata.X-tmpmat
+        freshadata.X=tmpmat
+        #Subtracts probabalistic value of ambient pamb/(pamb+!pamb)
+    else:
+        #txp=theta[:,0:(K-1)]*phi[:,0:(K-1)].T
+        for ci,c in tqdm(enumerate(freshadata.obs.index)):
+            farow=freshadata[c,:].X
+            rowinds=farow.nonzero()[0]
+            countz=farow[rowinds]
+            rowtxp=(theta[ci,0:(K-1)]*phi[:,0:(K-1)].T).A1 #memory saving #txp[ci,:].A1
+            rowtxpamb=(theta[ci,(K-1)]*phi[:,(K-1)].T).A1
+            indmultiset=[[rowinds[i]]*int(countz[i]) for i in range(len(countz))]
+            vals = np.array([item for sublist in indmultiset for item in sublist])
+            phimultiset=[[rowtxpamb[rowind]/countz[i]]*int(countz[i]) for i,rowind in enumerate(rowinds)]
+            pvals = np.array([item for sublist in phimultiset for item in sublist])
+            phimultiset=[[rowtxp[rowind]+rowtxpamb[rowind]+1e-10]*int(countz[i]) for i,rowind in enumerate(rowinds)]
+            pvalsdenom = np.array([item for sublist in phimultiset for item in sublist])
+            pvals=pvals/(pvalsdenom)
+            vals=vals[pvals>0]
+            pvals=pvals[pvals>0]
+            if len(vals)>0:
+                #Select counts based on phiAmbient
+                cellcount=np.sum(freshadata[c,:][:,feature_names].X)
+                countremove=Counter(np.random.choice(vals,replace=False,size=min(len(vals),int(theta[ci,theta.shape[1]-1]*cellcount)),p=np.array(pvals)/sum(pvals))) 
+                tmpmat[ci,list(countremove.keys())]=list(countremove.values())
+        print(tmpmat.sum(), flush=True)
+        #subtract the values that are probabalistically likely to be ambient
+        freshadata.X=freshadata.X-tmpmat
+        ambmat=tmpmat
     
-    for i in range(theta.shape[1]):
-        freshadata.obs['lda_'+str(i)]=theta[:,i].X
+    print(np.corrcoef(tmpmat.sum(0),[phiAmbientDict[i] for i in freshadata.var.index]), flush=True)    
     freshadata._inplace_subset_obs([x<.5 for x in freshadata.obs['lda_'+str(K-1)]])
-    print(freshadata.obs.index)
-    freshadata.write(os.path.join(adatapath,'outs/ambientsubtracted.h5ad'))
-    print('saved subtracted mat')
+    freshadata.write(os.path.join(adatapath,'outs/ambientsubtracted'+str(subtractive)+'.h5ad'))
+    print('saved subtracted mat',flush=True)
     
     #Now plot Umaps for stuff
     sc.pp.normalize_per_cell(adata, counts_per_cell_after=1e4)
     sc.pp.log1p(adata)
-    sc.pp.highly_variable_genes(adata, n_top_genes=5000)
+    sc.pp.highly_variable_genes(adata, n_top_genes=4000)
     sc.pp.scale(adata, max_value=10)
     sc.pp.pca(adata)
     sc.pp.neighbors(adata)
@@ -256,7 +284,7 @@ for adatapath,samplename in zip(np.array(adatapaths)[ind],np.array(samplenames)[
     sc.pp.filter_cells(freshadata,min_counts=500,inplace=True)
     sc.pp.normalize_total(freshadata, target_sum=1e4)
     sc.pp.log1p(freshadata)
-    sc.pp.highly_variable_genes(freshadata,n_top_genes=5000,inplace=True)
+    sc.pp.highly_variable_genes(freshadata,n_top_genes=4000,inplace=True)
     sc.pp.scale(freshadata, max_value=10)
     sc.pp.pca(freshadata)
     sc.pp.neighbors(freshadata)

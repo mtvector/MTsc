@@ -6,6 +6,8 @@ import re
 import pandas as pd
 import numpy as np
 import scipy
+import matplotlib.pyplot as plt
+import seaborn as sns
 #scv.settings.set_figure_params('scvelo')
 sc.settings.figdir=str(os.path.expanduser('~/figs/'+"MultiseqSCvelo"))
 sc.settings.autosave=True
@@ -17,80 +19,10 @@ scv.settings.autoshow=False
 if not os.path.exists(sc.settings.figdir):
         os.makedirs(sc.settings.figdir)
         
-sc.set_figure_params(color_map="copper")
-
-def cell_cycle_score(adata,save=False):
-    s_genes=['MCM5', 'PCNA', 'TYMS', 'FEN1', 'MCM2', 'MCM4', 'RRM1', 'UNG', 'GINS2', 'MCM6', 'CDCA7', 'DTL', 'PRIM1', 'UHRF1', 'MLF1IP', 'HELLS', 'RFC2', 'RPA2', 'NASP', 'RAD51AP1', 'GMNN', 'WDR76', 'SLBP', 'CCNE2', 'UBR7', 'POLD3', 'MSH2', 'ATAD2', 'RAD51', 'RRM2', 'CDC45', 'CDC6', 'EXO1', 'TIPIN', 'DSCC1', 'BLM', 'CASP8AP2', 'USP1', 'CLSPN', 'POLA1', 'CHAF1B', 'BRIP1', 'E2F8']
-    g2m_genes=['HMGB2', 'CDK1', 'NUSAP1', 'UBE2C', 'BIRC5', 'TPX2', 'TOP2A', 'NDC80', 'CKS2', 'NUF2', 'CKS1B', 'MKI67', 'TMPO', 'CENPF', 'TACC3', 'FAM64A', 'SMC4', 'CCNB2', 'CKAP2L', 'CKAP2', 'AURKB', 'BUB1', 'KIF11', 'ANP32E', 'TUBB4B', 'GTSE1', 'KIF20B', 'HJURP', 'CDCA3', 'HN1', 'CDC20', 'TTK', 'CDC25C', 'KIF2C', 'RANGAP1', 'NCAPD2', 'DLGAP5', 'CDCA2', 'CDCA8', 'ECT2', 'KIF23', 'HMMR', 'AURKA', 'PSRC1', 'ANLN', 'LBR', 'CKAP5', 'CENPE', 'CTCF', 'NEK2', 'G2E3', 'GAS2L3', 'CBX5', 'CENPA']
-    sc.tl.score_genes_cell_cycle(adata,s_genes=s_genes,g2m_genes=g2m_genes)
-    sc.pl.violin(adata, ['G2M_score','S_score'], groupby='leiden')
-    if 'X_tsne' in adata.obsm.keys(): 
-        sc.pl.tsne(adata, color=['G2M_score','S_score','phase','leiden'],save='_cc')
-    sc.pl.umap(adata, color=['G2M_score','S_score','phase','leiden'],save='_cc')
-    return(adata)
-
-
-def marker_analysis(adata,variables=['leiden','region'],markerpath='https://docs.google.com/spreadsheets/d/e/2PACX-1vTz5a6QncpOOO-f3FHW2Edomn7YM5mOJu4z_y07OE3Q4TzcRr14iZuVyXWHv8rQuejzhhPlEBBH1y0V/pub?gid=1154528422&single=true&output=tsv'):
-    sc.set_figure_params(color_map="Purples")
-    import random
-    markerpath=os.path.expanduser(markerpath)
-    markers=pd.read_csv(markerpath,sep="\t")
-    print(markers)
-    markers[markers.keys()[0]]=[str(x) for x in markers[markers.keys()[0]]]
-    markers[markers.keys()[2]]=[str(x).split(',') for x in markers[markers.keys()[2]]]
-    markers[markers.keys()[3]]=[str(x).split(';') for x in markers[markers.keys()[3]]]
-    markers[markers.keys()[3]]=[[str(x).split(',') for x in y] for y in markers[markers.keys()[3]]]
-    uniqueClasses=set([y for x in markers[markers.keys()[2]] for y in x if y!='nan'])
-    uniqueSubClasses=set([z for x in markers[markers.keys()[3]] for y in x for z in y if z!='nan'])
-    comboClasses=[]
-    print(markers)
-    for i in range(markers.shape[0]):
-        rowlist=[]
-        for j in range(len(markers[markers.keys()[2]][i])):
-            for k in markers[markers.keys()[3]][i][j]:
-                rowlist.append(' '.join(filter(lambda x: x != 'nan',[k,markers[markers.keys()[2]][i][j]])))
-        comboClasses.append(rowlist)
-    markers['fullclass']=comboClasses
-    markers.set_index(markers.keys()[0],inplace=True,drop=False)
-    markers=markers.loc[ [x for x in markers[markers.keys()[0]] if x in adata.var_names],:]
-    uniqueFullClasses=set([y for x in markers['fullclass'] for y in x if y!='nan'])
-    from collections import defaultdict
-    markerDict = defaultdict(list)
-
-    for x in uniqueFullClasses:
-        for y in markers[markers.keys()[0]]:
-            if x in markers.loc[y,'fullclass']:
-                markerDict[x].append(y)
-    markerDictClass = defaultdict(list)
-    for x in uniqueClasses:
-        for y in markers[markers.keys()[0]]:
-            if x in markers.loc[y,'fullclass']:
-                markerDictClass[x].append(y)
-
-    markerPlotGroups=[]
-    for k in markerDict.keys():
-        if len(markerDict[k])>1:
-            print(k)
-            print(len(markerDict[k]))
-            sc.tl.score_genes(adata,gene_list=markerDict[k],score_name=k,gene_pool= markerDict[k]+random.sample(adata.var.index.tolist(),min(4000,adata.var.index.shape[0])))
-            markerPlotGroups.append(k)
-    adata.uns['marker_groups']=list(markerDict.keys())
-    for tag in variables:
-        pd.DataFrame(adata.obs.groupby(tag).describe()).to_csv(os.path.join(sc.settings.figdir, tag+"MarkerSumStats.csv"))
-
-    if 'X_tsne' in adata.obsm.keys():
-        sc.pl.tsne(adata, color=markerPlotGroups,save="_Marker_Group")
-    sc.pl.umap(adata, color=markerPlotGroups,save="_Marker_Group")
-    print(markerDict)
-    #sc.pl.violin(adata, markerPlotGroups, groupby='leiden',save="_Marker_Group_violins")
-    for i in markerDictClass:
-        print(i)
-        if 'X_tsne' in adata.obsm.keys():
-            sc.pl.tsne(adata, color=sorted(markerDictClass[i]),save="_"+str(i)+"_Marker")
-        sc.pl.umap(adata, color=sorted(markerDictClass[i]),save="_"+str(i)+"_Marker")
-    return(adata)
-
-        
+import importlib.util
+spec = importlib.util.spec_from_file_location("ScanpyUtilsMT", os.path.expanduser("~/code/pollye/MTsc/utils/ScanpyUtilsMT.py"))
+sc_utils = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(sc_utils)
         
 headpath=os.path.expanduser("/scrapp2/mtschmitz")
 
@@ -98,6 +30,11 @@ adata=sc.read_h5ad(os.path.join(headpath,'MultiseqRaw.h5ad'))
 print(adata)
 
 adata.var_names_make_unique()
+adata._inplace_subset_obs([x is not None for x in [re.search('[a-zA-Z]', x) for x in adata.obs['region']]])
+adata.obs['region']=[re.sub('_A_|_B_','_',x) for x in adata.obs['region']]
+adata._inplace_subset_obs([x is None for x in [re.search('nan|Doublet|Negative', x) for x in adata.obs['region']]])
+adata.obs['ActualRegion']=sc_utils.macaque_correct_regions(adata.obs['ActualRegion'])
+
 
 mito_genes = [name for name in adata.var_names if name in ['ND1','ND2','ND4L','ND4','ND5','ND6','ATP6','ATP8','CYTB','COX1','COX2','COX3'] or 'MT-' in name]
 ribo_genes = [name for name in adata.var_names if name.startswith('RPS') or name.startswith('RPL') ]
@@ -111,24 +48,23 @@ adata.obs['n_counts'] = adata.X.sum(axis=1).A1
 #scanpy.api.pp.filter_genes_dispersion(adata,n_top_genes=np.sum(np.sum(adata.X, axis=0)>0))
 sc.pp.filter_genes(adata, min_cells=20,inplace=True)
 sc.pp.filter_cells(adata,min_genes=400)
-sc.pl.violin(adata, ['n_genes', 'n_counts', 'percent_mito'],
-             jitter=0.4, multi_panel=True)
+#sc.pl.violin(adata, ['n_genes', 'n_counts', 'percent_mito'],jitter=0.4, multi_panel=True)
 
 sc.pp.normalize_per_cell(adata, counts_per_cell_after=1e4)
 
 sc.pp.log1p(adata)
-
+normalizedadata=adata.copy()
 sc.pp.highly_variable_genes(adata, n_top_genes=15000)
 sc.pp.scale(adata, max_value=10)
-#sc.pp.regress_out(adata,'n_counts')
+sc.pp.regress_out(adata,'batch')
 
 sc.pp.pca(adata)
 sc.pp.neighbors(adata)
 sc.tl.umap(adata)
 sc.tl.leiden(adata)
 
-
-cell_cycle_score(adata)
+sc_utils.cell_cycle_score(adata)
+'''
 sc.pl.umap(adata, color=['leiden','n_counts','region','phase'])
 sc.pl.umap(adata, color=['region','simpleregion','batch','leiden'],save='_MultiseqSummary')
 sc.pl.umap(adata, color=['region'],save='_region')
@@ -140,8 +76,120 @@ sc.pl.umap(adata, color=['ActualRegion'],save='_ActualRegion')
 sc.pl.umap(adata[['Negative' not in x and 'Doublet' not in x for x in adata.obs['region']],:], color=['leiden'],save='_screenedleiden')
 sc.pl.umap(adata[['Negative' not in x and 'Doublet' not in x for x in adata.obs['region']],:], color=['region'],save='_screenedsample')
 sc.pl.umap(adata[['Negative' not in x and 'Doublet' not in x for x in adata.obs['region']],:], color=['simpleregion'],save='_screenedsimpleregion')
+'''
+#df=pd.DataFrame([sc_utils.get_cluster_metrics(adata,rands=['batch','ActualRegion','region','tp'])])
+#df.to_csv(os.path.join(sc.settings.figdir,"Metrics.csv"))
 
-marker_analysis(adata,variables=['leiden','region'],markerpath=os.path.expanduser('~/markers.txt'))
+adata=sc_utils.marker_analysis(adata,variables=['leiden','region'],markerpath=os.path.expanduser('~/markers.txt'),subclass=True)
+
+adata.obs['subclassname']=[re.sub('mkrscore','',x) for x in adata.obs.loc[:,['mkrscore' in x for x in adata.obs.columns]].astype('float').idxmax(axis=1)]
+normalizedadata.obs['subclassname']=[re.sub('mkrscore','',x) for x in adata.obs.loc[:,['mkrscore' in x for x in adata.obs.columns]].astype('float').idxmax(axis=1)]
+sc.pl.umap(adata,color=['subclassname'],save='_subclassname')
+
+def most_frequent(List): 
+    return max(set(List), key = List.count) 
+classlist=[]
+for c in adata.obs['subclassname']:
+    fullbool=[c in x for x in adata.uns['markers']['fullclass']]
+    flatclass=[item for sublist in adata.uns['markers'].loc[fullbool,'type'] for item in sublist]
+    classlist.append(most_frequent(flatclass))
+adata.obs['classname']=classlist
+normalizedadata.obs['classname']=classlist
+sc.pl.umap(adata,color=['classname'],save='_classname')
+
+def variance(X,axis=1):
+    return( (X.power(2)).mean(axis=axis)-(np.power(X.mean(axis=axis),2)) )
+
+key1='region'
+key2='classname'
+meanmat=np.zeros((len(set(normalizedadata.obs[key1])),len(set(normalizedadata.obs[key2])),normalizedadata.shape[1]))
+varmat=np.zeros((len(set(normalizedadata.obs[key1])),len(set(normalizedadata.obs[key2])),normalizedadata.shape[1]))
+for ri,r in enumerate(set(normalizedadata.obs[key1])):
+    for scni,scn in enumerate(set(adata.obs[key2])):
+        print(scn)
+        a=normalizedadata[(normalizedadata.obs[key1]==r) & (normalizedadata.obs[key2]==scn),:]
+        if a.shape[0]>5:
+            meanmat[ri,scni]=variance(a.X,axis=0)/a.X.mean(axis=0)
+            varmat[ri,scni]=sc.pp.highly_variable_genes(a,inplace=False)['dispersions_norm']
+                       
+fig, ax = plt.subplots(figsize=(20,20)) 
+sns.heatmap(np.nanmean(varmat,axis=2),yticklabels=set(normalizedadata.obs[key1]),xticklabels=set(normalizedadata.obs[key2]))
+plt.savefig(os.path.join(sc.settings.figdir,key1+key2+'DispersionHeatmap.pdf'))
+plt.close()
+
+fig, ax = plt.subplots(figsize=(20,20)) 
+forviolins={}
+for i in range(len(set(normalizedadata.obs[key1]))):
+    if '65' in list(set(normalizedadata.obs[key1]))[i]:
+        cellinds=['Astrocyte' in c for c in set(normalizedadata.obs[key2])]
+        forviolins[list(set(normalizedadata.obs[key1]))[i]]=varmat[i,cellinds,:].flatten()
+sns.violinplot(data=pd.DataFrame(forviolins),inner='box')
+plt.xticks(rotation=45)
+plt.savefig(os.path.join(sc.settings.figdir,key1+key2+'AstrocyteViolins.pdf'))
+plt.close()
+
+fig, ax = plt.subplots(figsize=(20,20)) 
+forviolins={}
+for i in range(len(set(normalizedadata.obs[key1]))):
+    if '65' in list(set(normalizedadata.obs[key1]))[i]:
+        cellinds=['Astrocyte' in c for c in set(normalizedadata.obs[key2])]
+        forviolins[list(set(normalizedadata.obs[key1]))[i]]=meanmat[i,cellinds,:].flatten()
+sns.violinplot(data=pd.DataFrame(forviolins),inner='box')
+plt.xticks(rotation=45)
+plt.savefig(os.path.join(sc.settings.figdir,key1+key2+'AstrocyteVarindexViolins.pdf'))
+plt.close()
+
+
+fig, ax = plt.subplots(figsize=(20,20)) 
+forviolins={}
+for i in range(len(set(normalizedadata.obs[key1]))):
+    if '65' in list(set(normalizedadata.obs[key1]))[i]:
+        cellinds=['Neuron' in c for c in set(normalizedadata.obs[key2])]
+        forviolins[list(set(normalizedadata.obs[key1]))[i]]=varmat[i,cellinds,:].flatten()
+sns.violinplot(data=pd.DataFrame(forviolins),inner='box')
+plt.xticks(rotation=45)
+plt.savefig(os.path.join(sc.settings.figdir,key1+key2+'NeuronViolins.pdf'))
+plt.close()
+
+fig, ax = plt.subplots(figsize=(20,20)) 
+forviolins={}
+for i in range(len(set(normalizedadata.obs[key1]))):
+    if '65' in list(set(normalizedadata.obs[key1]))[i]:
+        cellinds=['Neuron' in c for c in set(normalizedadata.obs[key2])]
+        forviolins[list(set(normalizedadata.obs[key1]))[i]]=meanmat[i,cellinds,:].flatten()
+sns.violinplot(data=pd.DataFrame(forviolins),inner='box')
+plt.xticks(rotation=45)
+plt.savefig(os.path.join(sc.settings.figdir,key1+key2+'NeuronVarindexViolins.pdf'))
+plt.close()
+
+fig, ax = plt.subplots(figsize=(20,20)) 
+forviolins={}
+for i in range(len(set(normalizedadata.obs[key1]))):
+    if '65' in list(set(normalizedadata.obs[key1]))[i]:
+        cellinds=['Microglia' in c for c in set(normalizedadata.obs[key2])]
+        forviolins[list(set(normalizedadata.obs[key1]))[i]]=varmat[i,cellinds,:].flatten()
+sns.violinplot(data=pd.DataFrame(forviolins),inner='box')
+plt.xticks(rotation=45)
+plt.savefig(os.path.join(sc.settings.figdir,key1+key2+'MicrogliaViolins.pdf'))
+plt.close()
+
+
+for r in set(normalizedadata.obs['classname']):
+    a=normalizedadata[normalizedadata.obs['classname']==r,:].copy()
+    sc.pp.highly_variable_genes(a, n_top_genes=4000)
+    sc.pp.scale(a, max_value=10)
+    sc.pp.regress_out(adata,'batch')
+    sc.pp.pca(a)
+    sc.pp.neighbors(a)
+    sc.tl.umap(a)
+    sc.tl.leiden(a)
+    sc_utils.cell_cycle_score(a)
+    sc.pl.umap(a, color=['leiden','phase'],save='_'+r+'_summary')
+    sc.pl.umap(a, color=['region'],save='_'+r+'_region')
+    sc.pl.umap(a, color=['tp'],save='_'+r+'_tp')
+    sc.pl.umap(a, color=['ActualRegion'],save='_'+r+'_ActualRegion')
+    a.obs=adata.obs.loc[a.obs.index,:]
+    sc.pl.umap(a, color=['subclassname'],save='_'+r+'_Subclass')
 
 ###Now the velocity, using the already projected data
 
@@ -176,85 +224,13 @@ scv.tl.velocity_graph(avdata)
 scv.tl.velocity_embedding(avdata, basis='umap')
 scv.pl.velocity_embedding(avdata, basis='umap',save='_embed')
 scv.pl.velocity_embedding_grid(avdata, basis='umap',save='_grid')
-#scv.pl.velocity_embedding_stream(avdata, basis='umap',save='stream')
+scv.pl.velocity_embedding_stream(avdata, basis='umap',save='stream')
 sc.tl.leiden(avdata)
-sc.pl.umap(avdata, color=['leiden','tp','batch'],save='_tp')
-sc.pl.umap(avdata, color=['ActualRegion'],save='_ActualRegion')
-sc.pl.umap(avdata, color=['region'],save='_region')
+#sc.pl.umap(avdata, color=['leiden','tp','batch'],save='_tp')
+#sc.pl.umap(avdata, color=['ActualRegion'],save='_ActualRegion')
+#sc.pl.umap(avdata, color=['region'],save='_region')
 
-def cell_cycle_score(adata,save=False):
-    s_genes=['MCM5', 'PCNA', 'TYMS', 'FEN1', 'MCM2', 'MCM4', 'RRM1', 'UNG', 'GINS2', 'MCM6', 'CDCA7', 'DTL', 'PRIM1', 'UHRF1', 'MLF1IP', 'HELLS', 'RFC2', 'RPA2', 'NASP', 'RAD51AP1', 'GMNN', 'WDR76', 'SLBP', 'CCNE2', 'UBR7', 'POLD3', 'MSH2', 'ATAD2', 'RAD51', 'RRM2', 'CDC45', 'CDC6', 'EXO1', 'TIPIN', 'DSCC1', 'BLM', 'CASP8AP2', 'USP1', 'CLSPN', 'POLA1', 'CHAF1B', 'BRIP1', 'E2F8']
-    g2m_genes=['HMGB2', 'CDK1', 'NUSAP1', 'UBE2C', 'BIRC5', 'TPX2', 'TOP2A', 'NDC80', 'CKS2', 'NUF2', 'CKS1B', 'MKI67', 'TMPO', 'CENPF', 'TACC3', 'FAM64A', 'SMC4', 'CCNB2', 'CKAP2L', 'CKAP2', 'AURKB', 'BUB1', 'KIF11', 'ANP32E', 'TUBB4B', 'GTSE1', 'KIF20B', 'HJURP', 'CDCA3', 'HN1', 'CDC20', 'TTK', 'CDC25C', 'KIF2C', 'RANGAP1', 'NCAPD2', 'DLGAP5', 'CDCA2', 'CDCA8', 'ECT2', 'KIF23', 'HMMR', 'AURKA', 'PSRC1', 'ANLN', 'LBR', 'CKAP5', 'CENPE', 'CTCF', 'NEK2', 'G2E3', 'GAS2L3', 'CBX5', 'CENPA']
-    sc.tl.score_genes_cell_cycle(adata,s_genes=s_genes,g2m_genes=g2m_genes)
-    sc.pl.violin(adata, ['G2M_score','S_score'], groupby='leiden')
-    if 'X_tsne' in adata.obsm.keys(): 
-        sc.pl.tsne(adata, color=['G2M_score','S_score','phase','leiden'],save='_cc')
-    sc.pl.umap(adata, color=['G2M_score','S_score','phase','leiden'],save='_cc')
-    return(adata)
-cell_cycle_score(avdata)
-sc.pl.umap(avdata, color=['leiden','phase'],save='velophases')
 
-def marker_analysis(adata,variables=['leiden','region'],markerpath='https://docs.google.com/spreadsheets/d/e/2PACX-1vTz5a6QncpOOO-f3FHW2Edomn7YM5mOJu4z_y07OE3Q4TzcRr14iZuVyXWHv8rQuejzhhPlEBBH1y0V/pub?gid=1154528422&single=true&output=tsv'):
-    sc.set_figure_params(color_map="Purples")
-    import random
-    markerpath=os.path.expanduser(markerpath)
-    markers=pd.read_csv(markerpath,sep="\t")
-    print(markers)
-    markers[markers.keys()[0]]=[str(x) for x in markers[markers.keys()[0]]]
-    markers[markers.keys()[2]]=[str(x).split(',') for x in markers[markers.keys()[2]]]
-    markers[markers.keys()[3]]=[str(x).split(';') for x in markers[markers.keys()[3]]]
-    markers[markers.keys()[3]]=[[str(x).split(',') for x in y] for y in markers[markers.keys()[3]]]
-    uniqueClasses=set([y for x in markers[markers.keys()[2]] for y in x if y!='nan'])
-    uniqueSubClasses=set([z for x in markers[markers.keys()[3]] for y in x for z in y if z!='nan'])
-    comboClasses=[]
-    print(markers)
-    for i in range(markers.shape[0]):
-        rowlist=[]
-        for j in range(len(markers[markers.keys()[2]][i])):
-            for k in markers[markers.keys()[3]][i][j]:
-                rowlist.append(' '.join(filter(lambda x: x != 'nan',[k,markers[markers.keys()[2]][i][j]])))
-        comboClasses.append(rowlist)
-    markers['fullclass']=comboClasses
-    markers.set_index(markers.keys()[0],inplace=True,drop=False)
-    markers=markers.loc[ [x for x in markers[markers.keys()[0]] if x in adata.var_names],:]
-    uniqueFullClasses=set([y for x in markers['fullclass'] for y in x if y!='nan'])
-    from collections import defaultdict
-    markerDict = defaultdict(list)
-
-    for x in uniqueFullClasses:
-        for y in markers[markers.keys()[0]]:
-            if x in markers.loc[y,'fullclass']:
-                markerDict[x].append(y)
-    markerDictClass = defaultdict(list)
-    for x in uniqueClasses:
-        for y in markers[markers.keys()[0]]:
-            if x in markers.loc[y,'fullclass']:
-                markerDictClass[x].append(y)
-
-    markerPlotGroups=[]
-    for k in markerDict.keys():
-        if len(markerDict[k])>1:
-            print(k)
-            print(len(markerDict[k]))
-            sc.tl.score_genes(adata,gene_list=markerDict[k],score_name=k,gene_pool= markerDict[k]+random.sample(adata.var.index.tolist(),min(4000,adata.var.index.shape[0])))
-            markerPlotGroups.append(k)
-    adata.uns['marker_groups']=list(markerDict.keys())
-    for tag in variables:
-        pd.DataFrame(adata.obs.groupby(tag).describe()).to_csv(os.path.join(sc.settings.figdir, tag+"MarkerSumStats.csv"))
-
-    if 'X_tsne' in adata.obsm.keys():
-        sc.pl.tsne(adata, color=markerPlotGroups,save="_Marker_Group")
-    sc.pl.umap(adata, color=markerPlotGroups,save="_Marker_Group")
-    print(markerDict)
-    #sc.pl.violin(adata, markerPlotGroups, groupby='leiden',save="_Marker_Group_violins")
-    for i in markerDictClass:
-        print(i)
-        if 'X_tsne' in adata.obsm.keys():
-            sc.pl.tsne(adata, color=sorted(markerDictClass[i]),save="_"+str(i)+"_Marker")
-        sc.pl.umap(adata, color=sorted(markerDictClass[i]),save="_"+str(i)+"_Marker")
-    return(adata)
-
-marker_analysis(avdata,variables=['leiden','region'],markerpath=os.path.expanduser('~/markers.txt'))
 
 sc.tl.rank_genes_groups(adata, 'leiden', method='logreg')
 result = adata.uns['rank_genes_groups']

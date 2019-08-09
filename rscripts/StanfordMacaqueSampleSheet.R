@@ -1,6 +1,10 @@
-sampletab = read.table('~/stanfordseqindices.csv',sep = '\t',header=T,stringsAsFactors = F)
+sampletab = read.table('~/stanfordseqindices.csv',sep = ',',header=T,stringsAsFactors = F)
 lanes=rep(c(1,2,3,4),nrow(sampletab))
 sampletab=sampletab[,-1]
+tinytab=cbind(Lane=lanes,Sample=sampletab[,1],Index=sampletab[,ncol(sampletab)])
+
+
+
 name10x=sapply(sampletab[,2],function(s){
   rownames(tab)[which(tab[,1]==s)]
 })

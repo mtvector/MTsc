@@ -16,7 +16,7 @@ import pickle
 import inspect
 import re
 
-sc.set_figure_params(color_map="copper")
+sc.set_figure_params(color_map="Purples")
 outpath=sc.settings.figdir
 #Init scanpyanalysis object by giving an outpath, then call functions statically
 outpath = os.path.expanduser(outpath)
@@ -119,6 +119,22 @@ def macaque_process_irregular_names(adata):
     if adata.uns['name'] in mixSamples.keys():
         adata.uns['name']=mixSamples[adata.uns['name']]
     return(adata)
+
+def macaque_correct_regions(regionlist):
+    regionkey={'thal':'thalamus',
+               'hippo':'hippocampus',
+               'somato':'somatosensory',
+               'hypo':'hypothalamus',
+               'midbrain/pons':'midbrain',
+               'motor-1':'motor',
+               'motor-2':'motor'}
+    newl=[]
+    for l in regionlist:
+        l=l.lower()
+        if l in regionkey.keys():
+            l=regionkey[l]
+        newl.append(l)
+    return(newl)
 
 #Imports a list of files, filters them with rough filtering, returns list of scanpy objects.
 #For use with concat_files function
@@ -344,20 +360,33 @@ def cell_cycle_score(adata,save=False):
     return(adata)
 
 #Calculates logistic regression enrichment of leiden clusters
-def log_reg_diff_exp(adata,save=False):
+def log_reg_diff_exp(adata,prefix='',save=False):
     sc.tl.rank_genes_groups(adata, 'leiden', method='logreg')
     result = adata.uns['rank_genes_groups']
     groups = result['names'].dtype.names
     df=pd.DataFrame({group + '_' + key[:1]: result[key][group] for group in groups for key in ['names', 'scores']})
-    df.to_csv(os.path.join(sc.settings.figdir,"leidenLogRegMarkers.csv"))
+    df.to_csv(os.path.join(sc.settings.figdir,prefix+"leidenLogRegMarkers.csv"))
     #adata.uns['operations']=np.append(adata.uns['operations'],inspect.stack()[0][3])
     if save:
         save_adata(adata,sc.settings.figdir)
     return(adata)
 
+#Input names of obsm for silhouettes, and obs for clustermethod and rands
+#Provides basic metrics of clustering quality 
+def get_cluster_metrics(adata,rands=[],clustermethod='leiden',silhouettes=['X_pca','X_umap']):
+    import sklearn
+    mets={}
+    for i in silhouettes:
+        mets[i+'_silhouette']=sklearn.metrics.silhouette_score( adata.obsm[i],adata.obs[clustermethod],metric='manhattan')
+    for i in rands:
+        mets[i+'_rand']=sklearn.metrics.adjusted_rand_score(adata.obs[i],adata.obs[clustermethod])
+    mets['X_silhouette']=sklearn.metrics.silhouette_score( adata.X,adata.obs[clustermethod],metric='manhattan')
+    return(mets)
+
+
 #Carry out brain atlas marker expresion, preprocessing if very complicated to process class and subclasses of markers
 #Uses score_genes
-def marker_analysis(adata,variables=['leiden','region'],markerpath='https://docs.google.com/spreadsheets/d/e/2PACX-1vTz5a6QncpOOO-f3FHW2Edomn7YM5mOJu4z_y07OE3Q4TzcRr14iZuVyXWHv8rQuejzhhPlEBBH1y0V/pub?gid=1154528422&single=true&output=tsv',save=False,prefix=''):
+def marker_analysis(adata,variables=['leiden','region'],markerpath='https://docs.google.com/spreadsheets/d/e/2PACX-1vTz5a6QncpOOO-f3FHW2Edomn7YM5mOJu4z_y07OE3Q4TzcRr14iZuVyXWHv8rQuejzhhPlEBBH1y0V/pub?gid=1154528422&single=true&output=tsv',subclass=True,save=False,prefix=''):
     sc.set_figure_params(color_map="Purples")
     import random
     markerpath=os.path.expanduser(markerpath)
@@ -370,12 +399,22 @@ def marker_analysis(adata,variables=['leiden','region'],markerpath='https://docs
     uniqueSubClasses=set([z for x in markers[markers.keys()[3]] for y in x for z in y if z!='nan'])
     comboClasses=[]
     #print(markers)
-    for i in range(markers.shape[0]):
-        rowlist=[]
-        for j in range(len(markers[markers.keys()[2]][i])):
-            for k in markers[markers.keys()[3]][i][j]:
-                rowlist.append(' '.join(filter(lambda x: x != 'nan',[k,markers[markers.keys()[2]][i][j]])))
-        comboClasses.append(rowlist)
+    markers[markers.keys()[2]]=[[y.lstrip() for y in x ]for x in markers[markers.keys()[2]]]
+    markers[markers.keys()[3]]=[[[z.lstrip() for z in  y] for y in x] for x in markers[markers.keys()[3]]]
+    if subclass:
+        for i in range(markers.shape[0]):
+            rowlist=[]
+            for j in range(len(markers[markers.keys()[2]][i])):
+                for k in markers[markers.keys()[3]][i][j]:
+                    rowlist.append(' '.join(filter(lambda x: x != 'nan',[k,markers[markers.keys()[2]][i][j]])))
+            comboClasses.append(rowlist)
+    else:
+        for i in range(markers.shape[0]):
+            rowlist=[]
+            for j in range(len(markers[markers.keys()[2]][i])):
+                rowlist.append(markers[markers.keys()[2]][i][j])
+            comboClasses.append(rowlist)
+
     markers['fullclass']=comboClasses
     markers.set_index(markers.keys()[0],inplace=True,drop=False)
     markers=markers.loc[ [x for x in markers[markers.keys()[0]] if x in adata.var_names],:]
@@ -396,10 +435,8 @@ def marker_analysis(adata,variables=['leiden','region'],markerpath='https://docs
     markerPlotGroups=[]
     for k in markerDict.keys():
         if len(markerDict[k])>1:
-            print(k)
-            print(len(markerDict[k]))
-            sc.tl.score_genes(adata,gene_list=markerDict[k],score_name=k,gene_pool= markerDict[k]+random.sample(adata.var.index.tolist(),min(4000,adata.var.index.shape[0])))
-            markerPlotGroups.append(k)
+            sc.tl.score_genes(adata,gene_list=markerDict[k],score_name='mkrscore'+k,gene_pool= markerDict[k]+random.sample(adata.var.index.tolist(),min(4000,adata.var.index.shape[0])))
+            markerPlotGroups.append('mkrscore'+k)
     adata.uns['marker_groups']=list(markerDict.keys())
     for tag in variables:
         pd.DataFrame(adata.obs.groupby(tag).describe()).to_csv(os.path.join(sc.settings.figdir, tag+prefix+"MarkerSumStats.csv"))
@@ -408,11 +445,12 @@ def marker_analysis(adata,variables=['leiden','region'],markerpath='https://docs
         sc.pl.tsne(adata, color=markerPlotGroups,save=prefix+"_Marker_Group")
     sc.pl.umap(adata, color=markerPlotGroups,save=prefix+"_Marker_Group")
 
-    sc.pl.violin(adata, markerPlotGroups, groupby='leiden',save=prefix+"_Marker_Group_violins")
+    #sc.pl.violin(adata, markerPlotGroups, groupby='leiden',save=prefix+"_Marker_Group_violins")
     for i in markerDictClass:
         if 'X_tsne' in adata.obsm.keys():
             sc.pl.tsne(adata, color=sorted(markerDictClass[i]),save=prefix+"_"+str(i)+"_Marker")
         sc.pl.umap(adata, color=sorted(markerDictClass[i]),save=prefix+"_"+str(i)+"_Marker")
+    adata.uns['markers']=markers
     #General
     #adata.uns['operations']=np.append(adata.uns['operations'],inspect.stack()[0][3])
     if save:
